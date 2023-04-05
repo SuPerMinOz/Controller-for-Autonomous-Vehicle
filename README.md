@@ -4,7 +4,7 @@
 
 ### 1. Kinematic Model 运动学模型
 
-#### **Assumption:** 
+### **Assumption:** 
 
 > 1. 车辆前后轮均可以转动，左右轮具有相同转角，即前后轮可以分别简化为单车模型 **Bicycle Model**  *(注：对于 **front-wheel-only** 系统，后轮转角可设置为 **zero**)* 
 >
@@ -13,7 +13,7 @@
 > 4. 车辆低加速度运动，忽略车辆加速、减速或转向时产生的前后轴负载转移 
 > 5. 车身以及悬架系统是刚体 **rigid body** 
 
-#### **Parameters Definition:**
+### **Parameters Definition:**
 
 <img src="./Pictures/KinematicModel.png" alt="KinematicModel" style="zoom:50%;" />
 
@@ -36,16 +36,15 @@
 >
 > **The course angle** for the vehicle is γ = ψ + β .
 
-#### **State Space Equation**
+### **State Space Equation**
 
 > *建立模型，切勿专注于公式的推导结果而忽略公式的推导过程，切勿专注于公式的推导过程而忽略模型的状态量与输入量。*
 
-##### 以车辆质心为参考点的运动学模型
+#### 以车辆质心为参考点的运动学模型
 
 **Step1. 确认模型状态量与输入量**
 $$
-{state: [X,Y,\psi]^T} \\
-{input: [V,\delta_f,\delta_r]^T}
+[X,Y,\psi]^T \quad [V,\delta_f,\delta_r]^T
 $$
 **Step2. 推导**
 
@@ -101,12 +100,11 @@ cos(β)tan(\delta_f)\over{l_f+l_r}
 \end{bmatrix}*V
 $$
 
-##### 以后轴中心为参考点的运动学模型 *(front-wheel-only)*
+#### 以后轴中心为参考点的运动学模型 *(front-wheel-only)*
 
  **Step1. 确认模型状态量与输入量**
 $$
-{state: [X_r,Y_r,\psi]^T} \\
-{input: [V_r,\delta_f]^T}
+[X_r,Y_r,\psi]^T \quad [V_r,\delta_f]^T
 $$
 **Step2. The overall equations of motion**
 
@@ -126,12 +124,11 @@ tan(\delta_f)\over{l_f+l_r}
 \end{bmatrix}*V_r
 $$
 
-##### 以前轴中心为参考点的运动学模型 *(front-wheel-only)*
+#### 以前轴中心为参考点的运动学模型 *(front-wheel-only)*
 
  **Step1. 确认模型状态量与输入量**
 $$
-{state: [X_f,Y_f,\psi]^T} \\
-{input: [V_f,\delta_f]^T}
+[X_f,Y_f,\psi]^T \quad [V_f,\delta_f]^T
 $$
 **Step2. The overall equations of motion**
 
@@ -151,4 +148,4 @@ sin(\delta_f)\over{l_f+l_r}
 \end{bmatrix}*V_f
 $$
 
-#### Linearization and discretization
+### Linearization and discretization
