@@ -145,9 +145,10 @@ class VehicleState:
 
         self.steer = delta
         self.gear = gear
+        self.yaw += self.v / wheelbase_ * math.tan(delta) * ts
+        self.yaw = pi_2_pi(self.yaw)
         self.x += self.v * math.cos(self.yaw) * ts
         self.y += self.v * math.sin(self.yaw) * ts
-        self.yaw += self.v / wheelbase_ * math.tan(delta) * ts
         self.lateral_error = lateral_error
         self.yaw_error = yaw_error
 

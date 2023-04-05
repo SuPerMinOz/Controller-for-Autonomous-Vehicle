@@ -24,12 +24,12 @@ Iz = 1436.24  # [N*m]
 # Controller Config
 ts = 0.10  # [s]
 max_iteration = 150
-eps = 1
+eps = 0.01
 
-matrix_q = [1.0, 1.0, 1.0]
+matrix_q = [1.0, 0.0, 1.0, 0.0]
 matrix_r = [10.0]
 
-state_size = 3
+state_size = 4
 
 max_acceleration = 5.0  # [m/ss]
 max_steer_angle = np.deg2rad(40)  # [rad]
@@ -124,14 +124,13 @@ class VehicleState:
         self.y = y
         self.yaw = yaw
         self.v = v
-        self.x_error = 0.0
-        self.y_error = 0.0
+        self.lateral_error = 0.0
         self.yaw_error = 0.0
 
         self.gear = gear
         self.steer = 0.0
 
-    def UpdateVehicleState(self, delta, a, x_error, y_error, yaw_error, gear=Gear.GEAR_DRIVE):
+    def UpdateVehicleState(self, delta, a, lateral_error, yaw_error, gear=Gear.GEAR_DRIVE):
         """
         update states of vehicle
         :param yaw_error: yaw error to ref trajectory
@@ -150,8 +149,7 @@ class VehicleState:
         self.yaw = pi_2_pi(self.yaw)
         self.x += self.v * math.cos(self.yaw) * ts
         self.y += self.v * math.sin(self.yaw) * ts
-        self.x_error = x_error
-        self.y_error = y_error
+        self.lateral_error = lateral_error
         self.yaw_error = yaw_error
 
         if gear == Gear.GEAR_DRIVE:
@@ -232,9 +230,18 @@ class TrajectoryAnalyzer:
         dy = [y_cg - iy for iy in self.y_[self.idx_start: self.idx_end]]
 
         ind_add = int(np.argmin(np.hypot(dx, dy)))
-        # calc position error:
-        x_error = dx[ind_add]
-        y_error = dy[ind_add]
+        dist = math.hypot(dx[ind_add], dy[ind_add])
+
+        # calc lateral relative position of vehicle to ref path
+        # dy * cos(yaw) - dx * sin(yaw)
+        vec_axle_rot = np.array([[-math.sin(yaw)], [math.cos(yaw)]])
+        vec_path_2_cg = np.array([[dx[ind_add]], [dy[ind_add]]])
+
+        if np.dot(vec_axle_rot.T, vec_path_2_cg) > 0.0:
+            lateral_error = 1.0 * dist  # vehicle on the right of ref path
+        else:
+            lateral_error = -1.0 * dist  # vehicle on the left of ref path
+        # lateral_error = np.dot(vec_axle_rot.T, vec_path_2_cg)
 
         # calc yaw error: yaw_error = yaw_vehicle - yaw_ref
         self.idx_start += ind_add
@@ -244,7 +251,7 @@ class TrajectoryAnalyzer:
         # calc ref curvature
         k_ref = self.k_[self.idx_start]
 
-        return yaw_error, x_error, y_error, yaw_ref, k_ref
+        return yaw_error, lateral_error, yaw_ref, k_ref
 
 
 class LatController:
@@ -260,7 +267,11 @@ class LatController:
         :return: steering angle (optimal u), yaw_error, lateral_error
         """
 
-        yaw_error, x_error, y_error, yaw_ref, k_ref = \
+        ts_ = ts
+        last_lateral_error = vehicle_state.lateral_error
+        last_yaw_error = vehicle_state.yaw_error
+
+        yaw_error, lateral_error, yaw_ref, k_ref = \
             ref_trajectory.ToTrajectoryFrame(vehicle_state)
 
         matrix_ad_, matrix_bd_ = self.UpdateMatrix(vehicle_state)
@@ -272,9 +283,10 @@ class LatController:
         matrix_k_ = self.SolveLQRProblem(matrix_ad_, matrix_bd_, matrix_q_,
                                          matrix_r_, eps, max_iteration)
 
-        matrix_state_[0][0] = x_error
-        matrix_state_[1][0] = y_error
+        matrix_state_[0][0] = lateral_error
+        matrix_state_[1][0] = (lateral_error - last_lateral_error) / ts_
         matrix_state_[2][0] = yaw_error
+        matrix_state_[3][0] = (yaw_error - last_yaw_error) / ts_
 
         steer_angle_feedback = -(matrix_k_ @ matrix_state_)[0][0]  # 反馈
 
@@ -282,7 +294,7 @@ class LatController:
 
         steer_angle = steer_angle_feedback + steer_angle_feedforward
 
-        return steer_angle, yaw_error, x_error, y_error
+        return steer_angle, yaw_error, lateral_error
 
     @staticmethod
     def ComputeFeedForward(ref_curvature):
@@ -359,15 +371,18 @@ class LatController:
 
         v = vehicle_state.v
 
-        matrix_a_ = np.zeros((state_size, state_size))  # continuous A matrix
-        matrix_a_[0][2] = -v * math.sin(vehicle_state.yaw)
-        matrix_a_[1][2] = v * math.cos(vehicle_state.yaw)
-        matrix_i = np.eye(state_size)  # identical matrix
-        matrix_ad_ = matrix_i + ts_ * matrix_a_  # discrete A matrix
+        # time discrete A matrix
+        matrix_ad_ = np.zeros((state_size, state_size))
+        matrix_ad_[0][0] = 1.0
+        matrix_ad_[0][1] = ts_
+        matrix_ad_[1][2] = v
+        matrix_ad_[2][2] = 1.0
+        matrix_ad_[2][3] = ts_
 
-        matrix_b_ = np.zeros((state_size, 1))  # continuous b matrix
-        matrix_b_[2][0] = v / wheelbase_ / (math.cos(vehicle_state.steer) ** 2)
-        matrix_bd_ = ts_ * matrix_b_  # discrete b matrix
+        # b = [0.0, 0.0, 0.0, v / L].T
+        # time discrete b matrix
+        matrix_bd_ = np.zeros((state_size, 1))
+        matrix_bd_[3][0] = v / wheelbase_
 
         return matrix_ad_, matrix_bd_
 
@@ -527,7 +542,7 @@ def main():
             else:
                 target_speed = 15.0 / 3.6
 
-            delta_opt, yaw_error, x_error, y_error = \
+            delta_opt, yaw_error, lateral_error = \
                 lat_controller.ComputeControlCommand(
                     vehicle_state, ref_trajectory)
 
@@ -535,7 +550,7 @@ def main():
                 target_speed, vehicle_state, dist)
 
             vehicle_state.UpdateVehicleState(
-                delta_opt, a_opt, x_error, y_error, yaw_error, direct)
+                delta_opt, a_opt, lateral_error, yaw_error, direct)
 
             t += ts
 
