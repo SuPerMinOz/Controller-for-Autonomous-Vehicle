@@ -2,7 +2,6 @@ import math
 import numpy as np
 from enum import Enum
 import matplotlib.pyplot as plt
-import reeds_shepp as rs
 
 # Vehicle config
 wheelbase = 2.33  # wheel base: front to rear axle [m]
@@ -23,11 +22,11 @@ Iz = 1436.24  # [N*m]
 
 # Controller Config
 ts = 0.10  # [s]
-max_iteration = 150
-eps = 1
+max_iteration = 100
+eps = 1e-4
 
 matrix_q = [1.0, 1.0, 1.0]
-matrix_r = [10.0]
+matrix_r = [1.0, 1.0]
 
 state_size = 3
 
@@ -113,53 +112,46 @@ def update_vehicle(x, y, yaw, steer, color='black'):
     plt.axis("equal")
 
 
-class Gear(Enum):
-    GEAR_DRIVE = 1
-    GEAR_REVERSE = 2
-
-
 class VehicleState:
-    def __init__(self, x=0.0, y=0.0, yaw=0.0, v=0.0, gear=Gear.GEAR_DRIVE):
+    def __init__(self, x, y, yaw, v, wheelbase, dt):
         self.x = x
         self.y = y
         self.yaw = yaw
         self.v = v
-        self.x_error = 0.0
-        self.y_error = 0.0
-        self.yaw_error = 0.0
+        self.wheelbase = wheelbase
+        self.dt = dt
 
-        self.gear = gear
-        self.steer = 0.0
-
-    def UpdateVehicleState(self, delta, a, x_error, y_error, yaw_error, gear=Gear.GEAR_DRIVE):
+    def UpdateVehicleState(self, delta_f, a):
         """
         update states of vehicle
-        :param yaw_error: yaw error to ref trajectory
-        :param lateral_error: lateral error to ref trajectory
         :param delta: steering angle [rad]
         :param a: acceleration [m/ss]
-        :param gear: gear mode [GEAR_DRIVE/GEAR_REVERSE]
         """
 
-        wheelbase_ = l_r + l_f
-        delta, a = self.RegulateInput(delta, a)  # 限制车辆转角与加速度
+        delta, a = self.RegulateInput(delta_f, a)  # 限制车辆转角与加速度
 
-        self.gear = gear
-        self.steer = delta
-        self.yaw += self.v / wheelbase_ * math.tan(delta) * ts
+        self.x += self.v * math.cos(self.yaw) * self.dt
+        self.y += self.v * math.sin(self.yaw) * self.dt
+
+        self.yaw += self.v / self.wheelbase * math.tan(delta_f) * self.dt
         self.yaw = pi_2_pi(self.yaw)
-        self.x += self.v * math.cos(self.yaw) * ts
-        self.y += self.v * math.sin(self.yaw) * ts
-        self.x_error = x_error
-        self.y_error = y_error
-        self.yaw_error = yaw_error
 
-        if gear == Gear.GEAR_DRIVE:
-            self.v += a * ts
-        else:
-            self.v += -1.0 * a * ts
-
+        self.v += a * self.dt
         self.v = self.RegulateOutput(self.v)  # 限制车辆速度
+
+    def state_space_equation(self, ref_delta, ref_yaw):
+
+        A = np.matrix([
+            [1.0, 0.0, -self.v * self.dt * math.sin(ref_yaw)],
+            [0.0, 1.0, self.v * self.dt * math.cos(ref_yaw)],
+            [0.0, 0.0, 1.0]])
+
+        B = np.matrix([
+            [self.dt * math.cos(ref_yaw), 0],
+            [self.dt * math.sin(ref_yaw), 0],
+            [self.dt * math.tan(ref_delta) / self.wheelbase, self.v * self.dt / (self.wheelbase * math.cos(ref_delta) * math.cos(ref_delta))]])
+
+        return A, B
 
     @staticmethod
     def RegulateInput(delta, a):
@@ -205,46 +197,47 @@ class VehicleState:
 
 
 class TrajectoryAnalyzer:
-    def __init__(self, x, y, yaw, k):
-        self.x_ = x
-        self.y_ = y
-        self.yaw_ = yaw
-        self.k_ = k
-
-        self.idx_start = 0
-        self.idx_end = len(x)
+    def __init__(self):
+        self.yaw_, self.k_ = [], []
+        self.x_ = np.linspace(0, 100, 1000)  # x
+        self.y_ = 2 * np.sin(self.x_ / 3.0) + 2.5 * np.cos(self.x_ / 2.0)  # y
+        for i in range(len(self.x_)):
+            if i == 0:
+                dx = self.x_[i + 1] - self.x_[i]
+                dy = self.y_[i + 1] - self.y_[i]
+                ddx = self.x_[i + 2] + self.x_[i] - 2 * self.x_[i + 1]
+                ddy = self.y_[i + 2] + self.y_[i] - 2 * self.y_[i + 1]
+            elif i == (len(self.x_) - 1):
+                dx = self.x_[i] - self.x_[i - 1]
+                dy = self.y_[i] - self.y_[i - 1]
+                ddx = self.x_[i - 2] + self.x_[i] - 2 * self.x_[i - 1]
+                ddy = self.y_[i - 2] + self.y_[i] - 2 * self.y_[i - 1]
+            else:
+                dx = self.x_[i + 1] - self.x_[i]
+                dy = self.y_[i + 1] - self.y_[i]
+                ddx = self.x_[i - 1] + self.x_[i + 1] - 2 * self.x_[i]
+                ddy = self.y_[i - 1] + self.y_[i + 1] - 2 * self.y_[i]
+            self.yaw_.append(math.atan2(dy, dx))  # yaw
+            self.k_.append((ddy * dx - ddx * dy) /
+                           ((dx ** 2 + dy ** 2) ** (3 / 2)))  # k
 
     def ToTrajectoryFrame(self, vehicle_state):
         """
         errors to trajectory frame
-        yaw_error = yaw_vehicle - yaw_ref_path
-        lateral_error = lateral distance of center of gravity (cg) in frenet frame
-        :param vehicle_state: vehicle state (class VehicleState)
-        :return: yaw_error, lateral_error, yaw_ref, k_ref
         """
 
         x_cg = vehicle_state.x
         y_cg = vehicle_state.y
-        yaw = vehicle_state.yaw
 
         # calc nearest point in ref path 索引值与距离值
-        dx = [x_cg - ix for ix in self.x_[self.idx_start: self.idx_end]]
-        dy = [y_cg - iy for iy in self.y_[self.idx_start: self.idx_end]]
+        dx = [x_cg - self.x_[ix] for ix in range(len(self.x_))]
+        dy = [y_cg - self.y_[iy] for iy in range(len(self.x_))]
+        idx = int(np.argmin(np.hypot(dx, dy)))
 
-        ind_add = int(np.argmin(np.hypot(dx, dy)))
-        # calc position error:
-        x_error = dx[ind_add]
-        y_error = dy[ind_add]
+        yaw_ref = self.yaw_[idx]
+        k_ref = self.k_[idx]
 
-        # calc yaw error: yaw_error = yaw_vehicle - yaw_ref
-        self.idx_start += ind_add
-        yaw_ref = self.yaw_[self.idx_start]
-        yaw_error = pi_2_pi(yaw - yaw_ref)
-
-        # calc ref curvature
-        k_ref = self.k_[self.idx_start]
-
-        return yaw_error, x_error, y_error, yaw_ref, k_ref
+        return yaw_ref, k_ref, idx
 
 
 class LatController:
@@ -257,13 +250,14 @@ class LatController:
         calc lateral control command.
         :param vehicle_state: vehicle state
         :param ref_trajectory: reference trajectory (analyzer)
-        :return: steering angle (optimal u), yaw_error, lateral_error
         """
 
-        yaw_error, x_error, y_error, yaw_ref, k_ref = \
+        yaw_ref, k_ref, target_idx = \
             ref_trajectory.ToTrajectoryFrame(vehicle_state)
+        delta_ref = math.atan2(wheelbase * k_ref, 1)
 
-        matrix_ad_, matrix_bd_ = self.UpdateMatrix(vehicle_state)
+        matrix_ad_, matrix_bd_ = vehicle_state.state_space_equation(
+            delta_ref, yaw_ref)
 
         matrix_state_ = np.zeros((state_size, 1))
         matrix_r_ = np.diag(matrix_r)
@@ -272,17 +266,17 @@ class LatController:
         matrix_k_ = self.SolveLQRProblem(matrix_ad_, matrix_bd_, matrix_q_,
                                          matrix_r_, eps, max_iteration)
 
-        matrix_state_[0][0] = x_error
-        matrix_state_[1][0] = y_error
-        matrix_state_[2][0] = yaw_error
+        matrix_state_[0][0] = vehicle_state.x - ref_trajectory.x_[target_idx]
+        matrix_state_[1][0] = vehicle_state.y - ref_trajectory.y_[target_idx]
+        matrix_state_[2][0] = vehicle_state.yaw - ref_trajectory.yaw_[target_idx]
 
-        steer_angle_feedback = -(matrix_k_ @ matrix_state_)[0][0]  # 反馈
+        steer_angle_feedback = -(matrix_k_ @ matrix_state_)[1][0]  # 反馈
 
         steer_angle_feedforward = self.ComputeFeedForward(k_ref)  # 前馈
 
-        steer_angle = steer_angle_feedback + steer_angle_feedforward
+        steer_angle = steer_angle_feedback + delta_ref
 
-        return steer_angle, yaw_error, x_error, y_error
+        return steer_angle
 
     @staticmethod
     def ComputeFeedForward(ref_curvature):
@@ -347,30 +341,6 @@ class LatController:
 
         return K
 
-    @staticmethod
-    def UpdateMatrix(vehicle_state):
-        """
-        calc A and b matrices of linearized, discrete system.
-        :return: A, b
-        """
-
-        ts_ = ts
-        wheelbase_ = l_f + l_r
-
-        v = vehicle_state.v
-
-        matrix_a_ = np.zeros((state_size, state_size))  # continuous A matrix
-        matrix_a_[0][2] = -v * math.sin(vehicle_state.yaw)
-        matrix_a_[1][2] = v * math.cos(vehicle_state.yaw)
-        matrix_i = np.eye(state_size)  # identical matrix
-        matrix_ad_ = matrix_i + ts_ * matrix_a_  # discrete A matrix
-
-        matrix_b_ = np.zeros((state_size, 1))  # continuous b matrix
-        matrix_b_[2][0] = v / wheelbase_ / (math.cos(vehicle_state.steer) ** 2)
-        matrix_bd_ = ts_ * matrix_b_  # discrete b matrix
-
-        return matrix_ad_, matrix_bd_
-
 
 class LonController:
     """
@@ -387,10 +357,7 @@ class LonController:
         :return: control command (acceleration) [m/ss]
         """
 
-        if vehicle_state.gear == Gear.GEAR_DRIVE:
-            direct = 1.0
-        else:
-            direct = -1.0
+        direct = 1.0
 
         a = 0.3 * (target_speed - direct * vehicle_state.v)
 
@@ -421,146 +388,59 @@ def pi_2_pi(angle):
     return angle
 
 
-def generate_path(s):
-    """
-    design path using reeds-shepp path generator.
-    divide paths into sections, in each section the direction is the same.
-    :param s: objective positions and directions.
-    :return: paths
-    """
-    wheelbase_ = l_f + l_r
-
-    max_c = math.tan(0.5 * max_steer_angle) / wheelbase_
-    path_x, path_y, yaw, direct, rc = [], [], [], [], []
-    x_rec, y_rec, yaw_rec, direct_rec, rc_rec = [], [], [], [], []
-    direct_flag = 1.0
-
-    for i in range(len(s) - 1):
-        s_x, s_y, s_yaw = s[i][0], s[i][1], np.deg2rad(s[i][2])
-        g_x, g_y, g_yaw = s[i + 1][0], s[i + 1][1], np.deg2rad(s[i + 1][2])
-
-        path_i = rs.calc_optimal_path(s_x, s_y, s_yaw,
-                                      g_x, g_y, g_yaw, max_c)
-
-        irc, rds = rs.calc_curvature(
-            path_i.x, path_i.y, path_i.yaw, path_i.directions)
-
-        ix = path_i.x
-        iy = path_i.y
-        iyaw = path_i.yaw
-        idirect = path_i.directions
-
-        for j in range(len(ix)):
-            if idirect[j] == direct_flag:
-                x_rec.append(ix[j])
-                y_rec.append(iy[j])
-                yaw_rec.append(iyaw[j])
-                direct_rec.append(idirect[j])
-                rc_rec.append(irc[j])
-            else:
-                if len(x_rec) == 0 or direct_rec[0] != direct_flag:
-                    direct_flag = idirect[j]
-                    continue
-
-                path_x.append(x_rec)
-                path_y.append(y_rec)
-                yaw.append(yaw_rec)
-                direct.append(direct_rec)
-                rc.append(rc_rec)
-                x_rec, y_rec, yaw_rec, direct_rec, rc_rec = \
-                    [x_rec[-1]], [y_rec[-1]], [yaw_rec[-1]
-                                               ], [-direct_rec[-1]], [rc_rec[-1]]
-
-    path_x.append(x_rec)
-    path_y.append(y_rec)
-    yaw.append(yaw_rec)
-    direct.append(direct_rec)
-    rc.append(rc_rec)
-
-    x_all, y_all = [], []
-    for ix, iy in zip(path_x, path_y):
-        x_all += ix
-        y_all += iy
-
-    return path_x, path_y, yaw, direct, rc, x_all, y_all
-
-
 def main():
-    # generate path
-    states = [(0, 0, 0), (20, 15, 0), (35, 20, 90), (40, 0, 180),
-              (20, 0, 120), (5, -10, 180), (15, 5, 30)]
 
-    # states = [(-3, 3, 120), (10, -7, 30), (10, 13, 30), (20, 5, -25),
-    #           (35, 10, 180), (30, -10, 160), (5, -12, 90)]
+    x0, y0, yaw0, t = 0, -3, 0, 0
 
-    x_ref, y_ref, yaw_ref, direct, curv, x_all, y_all = generate_path(states)
+    ref_trajectory = TrajectoryAnalyzer()
+    goal_x = ref_trajectory.x_[-1]
+    goal_y = ref_trajectory.y_[-1]
 
-    wheelbase_ = l_f + l_r
-
+    vehicle_state = VehicleState(x=x0, y=y0, yaw=yaw0, v=0, wheelbase=wheelbase, dt=ts)
+    path_x, path_y, path_yaw = [], [], []
     maxTime = 100.0
-    x0, y0, yaw0, direct0 = \
-        x_ref[0][0], y_ref[0][0], yaw_ref[0][0], direct[0][0]
-
-    x_rec, y_rec, yaw_rec, direct_rec = [], [], [], []
 
     lat_controller = LatController()
     lon_controller = LonController()
 
-    for x, y, yaw, gear, k in zip(x_ref, y_ref, yaw_ref, direct, curv):
-        t = 0.0
 
-        if gear[0] == 1.0:
-            direct = Gear.GEAR_DRIVE
-        else:
-            direct = Gear.GEAR_REVERSE
+    while t < maxTime:
 
-        ref_trajectory = TrajectoryAnalyzer(x, y, yaw, k)
+        dist = math.hypot(vehicle_state.x - goal_x, vehicle_state.y - goal_y)
+        target_speed = 25.0 / 3.6
 
-        vehicle_state = VehicleState(x=x0, y=y0, yaw=yaw0, v=0.1, gear=direct)
+        delta_opt = lat_controller.ComputeControlCommand(
+            vehicle_state, ref_trajectory)
 
-        while t < maxTime:
+        a_opt = lon_controller.ComputeControlCommand(
+            target_speed, vehicle_state, dist)
 
-            dist = math.hypot(vehicle_state.x - x[-1], vehicle_state.y - y[-1])
+        vehicle_state.UpdateVehicleState(delta_opt, a_opt)
 
-            if gear[0] > 0:
-                target_speed = 25.0 / 3.6
-            else:
-                target_speed = 15.0 / 3.6
+        t += ts
 
-            delta_opt, yaw_error, x_error, y_error = \
-                lat_controller.ComputeControlCommand(
-                    vehicle_state, ref_trajectory)
+        if dist <= 0.5:
+            break
 
-            a_opt = lon_controller.ComputeControlCommand(
-                target_speed, vehicle_state, dist)
+        path_x.append(vehicle_state.x)
+        path_y.append(vehicle_state.y)
+        path_yaw.append(vehicle_state.yaw)
 
-            vehicle_state.UpdateVehicleState(
-                delta_opt, a_opt, x_error, y_error, yaw_error, direct)
+        x0 = path_x[-1]
+        y0 = path_y[-1]
+        yaw0 = path_yaw[-1]
 
-            t += ts
-
-            if dist <= 0.5:
-                break
-
-            x_rec.append(vehicle_state.x)
-            y_rec.append(vehicle_state.y)
-            yaw_rec.append(vehicle_state.yaw)
-
-            x0 = x_rec[-1]
-            y0 = y_rec[-1]
-            yaw0 = yaw_rec[-1]
-
-            plt.cla()
-            plt.plot(x_all, y_all, color='gray', linewidth=2.0)
-            plt.plot(x_rec, y_rec, linewidth=2.0, color='darkviolet')
-            update_vehicle(x0, y0, yaw0, -vehicle_state.steer)
-            plt.axis("equal")
-            plt.title("LQR (Kinematic): v=" +
-                      str(vehicle_state.v * 3.6)[:4] + "km/h")
-            plt.gcf().canvas.mpl_connect('key_release_event',
-                                         lambda event:
-                                         [exit(0) if event.key == 'escape' else None])
-            plt.pause(0.001)
+        plt.cla()
+        plt.plot(ref_trajectory.x_, ref_trajectory.y_,
+                 color='gray', linewidth=2.0)
+        plt.plot(path_x, path_y, linewidth=2.0, color='darkviolet')
+        update_vehicle(x0, y0, yaw0, 0)
+        plt.title("LQR (Kinematic): v=" +
+                  str(vehicle_state.v * 3.6)[:4] + "km/h")
+        plt.gcf().canvas.mpl_connect('key_release_event',
+                                     lambda event:
+                                     [exit(0) if event.key == 'escape' else None])
+        plt.pause(0.001)
 
     plt.show()
 
