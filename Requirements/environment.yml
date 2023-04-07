@@ -1,0 +1,10 @@
+name: controller_for_autonomous_vehicle
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - scipy
+  - numpy
+  - cvxpy
+  - matplotlib
