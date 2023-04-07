@@ -25,15 +25,14 @@ ts = 0.10  # [s]
 max_iteration = 100
 eps = 1e-4
 
-matrix_q = [1.0, 1.0, 1.0]
-matrix_r = [1.0, 1.0]
+matrix_q = [1.0, 10.0, 1.0]
+matrix_r = [1.0, 10.0]
 
 state_size = 3
 
 max_acceleration = 5.0  # [m/ss]
 max_steer_angle = np.deg2rad(40)  # [rad]
 max_speed = 30 / 3.6  # [m/s]
-
 
 class Arrow:
     def __init__(self, x, y, theta, L, c):
@@ -130,11 +129,11 @@ class VehicleState:
 
         delta, a = self.RegulateInput(delta_f, a)  # 限制车辆转角与加速度
 
-        self.x += self.v * math.cos(self.yaw) * self.dt
-        self.y += self.v * math.sin(self.yaw) * self.dt
-
         self.yaw += self.v / self.wheelbase * math.tan(delta_f) * self.dt
         self.yaw = pi_2_pi(self.yaw)
+
+        self.x += self.v * math.cos(self.yaw) * self.dt
+        self.y += self.v * math.sin(self.yaw) * self.dt
 
         self.v += a * self.dt
         self.v = self.RegulateOutput(self.v)  # 限制车辆速度
@@ -199,8 +198,9 @@ class VehicleState:
 class TrajectoryAnalyzer:
     def __init__(self):
         self.yaw_, self.k_ = [], []
-        self.x_ = np.linspace(0, 100, 1000)  # x
+        self.x_ = np.linspace(0, -100, 1000)  # x
         self.y_ = 2 * np.sin(self.x_ / 3.0) + 2.5 * np.cos(self.x_ / 2.0)  # y
+
         for i in range(len(self.x_)):
             if i == 0:
                 dx = self.x_[i + 1] - self.x_[i]
@@ -268,7 +268,7 @@ class LatController:
 
         matrix_state_[0][0] = vehicle_state.x - ref_trajectory.x_[target_idx]
         matrix_state_[1][0] = vehicle_state.y - ref_trajectory.y_[target_idx]
-        matrix_state_[2][0] = vehicle_state.yaw - ref_trajectory.yaw_[target_idx]
+        matrix_state_[2][0] = pi_2_pi(vehicle_state.yaw - ref_trajectory.yaw_[target_idx])
 
         steer_angle_feedback = -(matrix_k_ @ matrix_state_)[1][0]  # 反馈
 
@@ -390,7 +390,7 @@ def pi_2_pi(angle):
 
 def main():
 
-    x0, y0, yaw0, t = 0, -3, 0, 0
+    x0, y0, yaw0, t = 0, -3, -3, 0
 
     ref_trajectory = TrajectoryAnalyzer()
     goal_x = ref_trajectory.x_[-1]
@@ -434,7 +434,7 @@ def main():
         plt.plot(ref_trajectory.x_, ref_trajectory.y_,
                  color='gray', linewidth=2.0)
         plt.plot(path_x, path_y, linewidth=2.0, color='darkviolet')
-        update_vehicle(x0, y0, yaw0, 0)
+        # update_vehicle(x0, y0, yaw0, 0)
         plt.title("LQR (Kinematic): v=" +
                   str(vehicle_state.v * 3.6)[:4] + "km/h")
         plt.gcf().canvas.mpl_connect('key_release_event',
