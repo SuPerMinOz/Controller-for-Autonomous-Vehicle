@@ -1,3 +1,9 @@
+"""
+Reeds Shepp
+
+(https://github.com/zhm-real/MotionPlanning/blob/master/CurvesGenerator/reeds_shepp.py)
+"""
+
 import time
 import math
 import numpy as np

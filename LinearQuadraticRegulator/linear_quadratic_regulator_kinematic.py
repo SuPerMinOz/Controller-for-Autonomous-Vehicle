@@ -198,7 +198,8 @@ class VehicleState:
 class TrajectoryAnalyzer:
     def __init__(self):
         self.yaw_, self.k_ = [], []
-        self.x_ = np.linspace(0, -100, 1000)  # x
+        self.x_ = np.linspace(0, 100, 1000)  # x
+        # self.x_ = np.linspace(0, -100, 1000)  # x
         self.y_ = 2 * np.sin(self.x_ / 3.0) + 2.5 * np.cos(self.x_ / 2.0)  # y
 
         for i in range(len(self.x_)):
@@ -390,7 +391,7 @@ def pi_2_pi(angle):
 
 def main():
 
-    x0, y0, yaw0, t = 0, -3, -3, 0
+    x0, y0, yaw0, t = 0, -3, 3, 0
 
     ref_trajectory = TrajectoryAnalyzer()
     goal_x = ref_trajectory.x_[-1]
