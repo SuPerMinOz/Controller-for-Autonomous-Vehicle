@@ -199,7 +199,7 @@ def pure_pursuit(vehicle, ref_path, idx_start, Ld):
     path_y = ref_path.cy[ind]
 
     alpha = math.atan2(path_y - vehicle.y, path_x - vehicle.x) - vehicle.yaw
-    # alpha = pi_2_pi(alpha)
+    alpha = pi_2_pi(alpha)
 
     delta = math.atan2(2.0 * WB * math.sin(alpha), Lf)
 
@@ -285,11 +285,10 @@ def main():
     x, y, yaw, direct, path_x, path_y = generate_path(states)
 
     maxTime = 100.0
-    yaw_old = 0.0
     x0, y0, yaw0, direct0 = x[0][0], y[0][0], yaw[0][0], direct[0][0]
     x_rec, y_rec = [], []
 
-    for cx, cy, cyaw, cdirect in zip(x, y, yaw, direct):
+    for cx, cy, _, cdirect in zip(x, y, yaw, direct):
         t = 0.0
         vehicle = Vehicle(x=x0, y=y0, yaw=yaw0, v=0.0, direct=direct0)
         vehiclecache = VehicleCache()
@@ -342,7 +341,8 @@ def main():
             update_vehicle(vehicle.x, vehicle.y, vehicle.yaw, 0)
 
             for m in range(len(states)):
-                Arrow(states[m][0], states[m][1], np.deg2rad(states[m][2]), 2, 'blue')
+                Arrow(states[m][0], states[m][1],
+                      np.deg2rad(states[m][2]), 2, 'blue')
 
             plt.axis("equal")
             plt.title("PurePursuit: v=" + str(vehicle.v * 3.6)[:4] + "km/h")
@@ -354,5 +354,69 @@ def main():
     plt.show()
 
 
+def main_another():
+    t = 0.0
+    maxTime = 100
+
+    cx = np.linspace(0, 100, 1000)
+    cy = 2 * np.sin(cx / 3.0) + 2.5 * np.cos(cx / 2.0)
+    ref_trajectory = Trajectory(cx, cy)
+
+    x0, y0, yaw0, direct0 = 0, -3, 0, 1
+    x_rec, y_rec = [], []
+    vehicle = Vehicle(x=x0, y=y0, yaw=yaw0, v=0.0, direct=direct0)
+    vehiclecache = VehicleCache()
+    vehiclecache.add(t, vehicle)
+    target_ind, _ = ref_trajectory.calc_target_index(vehicle)
+
+    while t <= maxTime:
+        target_speed = 10.0 / 3.6
+        Ld = 2.0
+        dist_stop = 1.5
+        distance_to_center = -1.1
+
+        xt = vehicle.x + distance_to_center * math.cos(vehicle.yaw)
+        yt = vehicle.y + distance_to_center * math.sin(vehicle.yaw)
+        dist = math.hypot(xt - cx[-1], yt - cy[-1])
+        if dist < dist_stop:
+            break
+
+        acceleration = pid_control(
+            target_speed, vehicle.v, dist, direct0)
+        delta, target_ind = pure_pursuit(
+            vehicle, ref_trajectory, target_ind, Ld)
+
+        t += dt
+
+        vehicle.update(acceleration, delta, direct0)
+        vehiclecache.add(t, vehicle)
+        x_rec.append(vehicle.x)
+        y_rec.append(vehicle.y)
+
+        x0 = vehiclecache.x[-1]
+        y0 = vehiclecache.y[-1]
+        yaw0 = vehiclecache.yaw[-1]
+        direct0 = vehiclecache.direct[-1]
+
+        # animation
+        plt.cla()
+        plt.plot(vehicle.x, vehicle.y, marker='.', color='k')
+        plt.plot(cx, cy, color='gray', linewidth=2)
+        plt.plot(x_rec, y_rec, color='darkviolet', linewidth=2)
+        plt.plot(cx[target_ind], cy[target_ind], ".r")
+        update_vehicle(vehicle.x, vehicle.y, vehicle.yaw, 0)
+
+
+        plt.axis("equal")
+        plt.title("PurePursuit: v=" + str(vehicle.v * 3.6)[:4] + "km/h")
+        plt.gcf().canvas.mpl_connect('key_release_event',
+                                        lambda event:
+                                        [exit(0) if event.key == 'escape' else None])
+        plt.pause(0.001)
+
+    plt.show()
+
+
 if __name__ == '__main__':
     main()
+    # main_another()
