@@ -206,6 +206,12 @@ def main():
     # generate path
     ax = np.arange(0, 50, 0.5)
     ay = [math.sin(ix / 5.0) * ix / 2.0 for ix in ax]
+    target_speed = 25.0 / 3.6
+
+    # ax = np.linspace(0, 100, 1000)
+    # ay = 2 * np.sin(ax / 3.0) + 2.5 * np.cos(ax / 2.0)
+    # target_speed = 10.0 / 3.6
+
     cx, cy, cyaw, ck, _ = cs.calc_spline_course(ax, ay, ds=dt)
     ref_path = Trajectory(cx, cy, cyaw, ck)
 
@@ -220,7 +226,6 @@ def main():
 
     while t < maxTime:
         t += dt
-        target_speed = 25.0 / 3.6
 
         di, target_index = stanley_control(vehicle, ref_path)
 
