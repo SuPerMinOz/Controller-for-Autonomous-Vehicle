@@ -15,6 +15,14 @@ MAX_CURVE = 0.3
 MAX_ACCELERATION = 5.0
 
 # vehicle config
+# RF = 3.3  # [m] distance from rear to vehicle front end of vehicle
+# RB = 0.8  # [m] distance from rear to vehicle back end of vehicle
+# W = 2.4  # [m] width of vehicle
+# WD = 0.7 * W  # [m] distance between left-right wheels
+# WB = 2.5  # [m] Wheel base
+# TR = 0.44  # [m] Tyre radius
+# TW = 0.7  # [m] Tyre width
+
 RF = 3.3  # [m] distance from rear to vehicle front end of vehicle
 RB = 0.8  # [m] distance from rear to vehicle back end of vehicle
 W = 2.4  # [m] width of vehicle
@@ -22,7 +30,6 @@ WD = 0.7 * W  # [m] distance between left-right wheels
 WB = 2.5  # [m] Wheel base
 TR = 0.44  # [m] Tyre radius
 TW = 0.7  # [m] Tyre width
-
 
 class Arrow:
     def __init__(self, x, y, theta, L, c):

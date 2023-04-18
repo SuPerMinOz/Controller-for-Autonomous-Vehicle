@@ -134,7 +134,7 @@ class Vehicle:
         self.y += self.v * math.sin(self.yaw) * dt
 
         self.yaw += self.v / wheelbase * math.tan(delta) * dt
-        self.yaw = pi_2_pi(self.yaw)
+        # self.yaw = pi_2_pi(self.yaw)
 
         self.direct = direct
         self.v += self.direct * a * dt
@@ -165,7 +165,7 @@ class TrajectoryAnalyzer:
     def __init__(self, cx, cy, cyaw, ck):
         self.cx = cx
         self.cy = cy
-        self.cyaw = cyaw
+        self.cyaw = smooth_yaw(cyaw)
         self.ck = ck
         self.length = len(cx)
         self.idx_start = 0
@@ -424,13 +424,32 @@ def pi_2_pi(angle):
     return angle
 
 
+def smooth_yaw(yaw):
+
+    for i in range(len(yaw) - 1):
+        dyaw = yaw[i + 1] - yaw[i]
+
+        while dyaw >= math.pi / 2.0:
+            yaw[i + 1] -= math.pi * 2.0
+            dyaw = yaw[i + 1] - yaw[i]
+
+        while dyaw <= -math.pi / 2.0:
+            yaw[i + 1] += math.pi * 2.0
+            dyaw = yaw[i + 1] - yaw[i]
+
+    return yaw
+
+
 def main():
-    ax = [0.0, 15.0, 30.0, 50.0, 60.0]
-    ay = [0.0, 40.0, 15.0, 30.0, 0.0]
+    # ax = [0.0, 15.0, 30.0, 50.0, 60.0]
+    # ay = [0.0, 40.0, 15.0, 30.0, 0.0]
+
+    ax = [60.0, 50.0, 30.0, 15.0, 0.0]
+    ay = [0.0, 30.0, 15.0, 40.0, 0.0]
 
     cx, cy, cyaw, ck, s = cs.calc_spline_course(
         ax, ay, ds=d_dist)
-
+    
     speed_profile = calc_speed_profile(cx, cy, cyaw, target_speed)
 
     ref_path = TrajectoryAnalyzer(cx, cy, cyaw, ck)
@@ -493,7 +512,8 @@ def main():
         plt.plot(x, y, '-b')
         plt.plot(cx[target_ind], cy[target_ind])
         plt.axis("equal")
-        plt.title("Linear MPC, " + "v = " + str(round(vehicle.v * 3.6, 2)) + "km/h")
+        plt.title("Linear MPC, " + "v = " +
+                  str(round(vehicle.v * 3.6, 2)) + "km/h")
         plt.pause(0.001)
 
     plt.show()
